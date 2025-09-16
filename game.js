@@ -58,6 +58,13 @@ class GameClient {
         this.viewportX = 0;
         this.viewportY = 0;
         
+        // Input & animation state
+        this.heldDirections = new Set();
+        this.directionOrder = [];
+        this.animationFps = 8;
+        this.lastAnimationTime = 0;
+        this.rafId = null;
+        
         this.init();
     }
     
@@ -65,6 +72,8 @@ class GameClient {
         this.setupCanvas();
         this.loadWorldMap();
         this.connectToServer();
+        this.setupInput();
+        this.startAnimationLoop();
     }
     
     setupCanvas() {
@@ -167,6 +176,89 @@ class GameClient {
                 this.render();
                 break;
         }
+    }
+
+    setupInput() {
+        window.addEventListener('keydown', (event) => {
+            const direction = this.keyToDirection(event.key);
+            if (!direction) return;
+            event.preventDefault();
+
+            // Track held state and recency
+            if (!this.heldDirections.has(direction)) {
+                this.heldDirections.add(direction);
+                this.directionOrder.push(direction);
+            }
+
+            // Send a move command on every keydown event (including repeats)
+            this.sendMove(direction);
+
+            // Optimistic local state update for responsiveness
+            const self = this.players[this.playerId];
+            if (self) {
+                self.facing = direction === 'left' ? 'west' : direction === 'right' ? 'east' : direction === 'up' ? 'north' : 'south';
+                self.isMoving = true;
+            }
+        }, { passive: false });
+
+        window.addEventListener('keyup', (event) => {
+            const direction = this.keyToDirection(event.key);
+            if (!direction) return;
+            event.preventDefault();
+
+            // Remove from held sets
+            this.heldDirections.delete(direction);
+            this.directionOrder = this.directionOrder.filter(d => d !== direction);
+
+            // If another key is still held, continue moving in the most recent direction
+            const nextDirection = this.directionOrder[this.directionOrder.length - 1];
+            if (nextDirection) {
+                this.sendMove(nextDirection);
+            } else {
+                // Otherwise stop
+                this.sendStop();
+                const self = this.players[this.playerId];
+                if (self) self.isMoving = false;
+            }
+        }, { passive: false });
+    }
+
+    keyToDirection(key) {
+        switch (key) {
+            case 'ArrowUp': return 'up';
+            case 'ArrowDown': return 'down';
+            case 'ArrowLeft': return 'left';
+            case 'ArrowRight': return 'right';
+            default: return null;
+        }
+    }
+
+    sendMove(direction) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        this.ws.send(JSON.stringify({ action: 'move', direction }));
+    }
+
+    sendStop() {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        this.ws.send(JSON.stringify({ action: 'stop' }));
+    }
+
+    startAnimationLoop() {
+        const tick = (timestamp) => {
+            const delta = timestamp - this.lastAnimationTime;
+            const interval = 1000 / this.animationFps;
+            if (delta >= interval) {
+                this.lastAnimationTime = timestamp;
+                const self = this.players[this.playerId];
+                if (self && self.isMoving) {
+                    self.animationFrame = ((self.animationFrame || 0) + 1) % 3;
+                    this.updateViewport();
+                    this.render();
+                }
+            }
+            this.rafId = window.requestAnimationFrame(tick);
+        };
+        this.rafId = window.requestAnimationFrame(tick);
     }
     
     updateViewport() {
