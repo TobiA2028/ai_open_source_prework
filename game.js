@@ -65,6 +65,11 @@ class GameClient {
         this.lastAnimationTime = 0;
         this.rafId = null;
         
+        // UI Elements
+        this.connectionStatus = document.getElementById('connectionStatus');
+        this.playerCount = document.getElementById('playerCount');
+        this.playerPosition = document.getElementById('playerPosition');
+        
         this.init();
     }
     
@@ -106,6 +111,7 @@ class GameClient {
         
         this.ws.onopen = () => {
             console.log('Connected to game server');
+            this.updateConnectionStatus('Connected');
             this.joinGame();
         };
         
@@ -120,10 +126,12 @@ class GameClient {
         
         this.ws.onclose = () => {
             console.log('Disconnected from game server');
+            this.updateConnectionStatus('Disconnected');
         };
         
         this.ws.onerror = (error) => {
             console.error('WebSocket error:', error);
+            this.updateConnectionStatus('Error');
         };
     }
     
@@ -150,6 +158,7 @@ class GameClient {
                     }
                     
                     this.updateViewport();
+                    this.updateUI();
                     this.render();
                     console.log('Joined game successfully, player ID:', this.playerId);
                 } else {
@@ -162,17 +171,20 @@ class GameClient {
                 if (message.avatar) {
                     this.avatars[message.avatar.name] = new Avatar(message.avatar);
                 }
+                this.updateUI();
                 this.render();
                 break;
                 
             case 'players_moved':
                 Object.assign(this.players, message.players);
                 this.updateViewport();
+                this.updateUI();
                 this.render();
                 break;
                 
             case 'player_left':
                 delete this.players[message.playerId];
+                this.updateUI();
                 this.render();
                 break;
         }
@@ -335,6 +347,28 @@ class GameClient {
         this.ctx.fillText(player.username, x, labelY);
         
         this.ctx.restore();
+    }
+    
+    updateConnectionStatus(status) {
+        if (this.connectionStatus) {
+            this.connectionStatus.textContent = status;
+        }
+    }
+    
+    updateUI() {
+        // Update player count
+        const playerCount = Object.keys(this.players).length;
+        if (this.playerCount) {
+            this.playerCount.textContent = `Players: ${playerCount}`;
+        }
+        
+        // Update player position
+        if (this.playerId && this.players[this.playerId]) {
+            const player = this.players[this.playerId];
+            if (this.playerPosition) {
+                this.playerPosition.textContent = `Position: (${Math.round(player.x)}, ${Math.round(player.y)})`;
+            }
+        }
     }
 }
 
